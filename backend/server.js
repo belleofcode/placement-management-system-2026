@@ -5,35 +5,56 @@ const connectDB = require("./config/db");
 const bcrypt = require("bcryptjs");
 const User = require("./models/User");
 
-let ready = false;
+let readyPromise = null;
 
 async function prepare() {
-  if (ready) return;
+  if (!readyPromise) {
+    readyPromise = (async () => {
+      await connectDB();
 
-  await connectDB();
+      const email = (
+        process.env.ADMIN_EMAIL || "admin@placementhub.com"
+      ).toLowerCase();
 
-  const email = (process.env.ADMIN_EMAIL || "admin@placementhub.com").toLowerCase();
-  const exists = await User.findOne({ email });
+      const exists = await User.findOne({ email });
 
-  if (!exists) {
-    const password = await bcrypt.hash(
-      process.env.ADMIN_PASSWORD || "Admin@12345",
-      10
-    );
+      if (!exists) {
+        const password = await bcrypt.hash(
+          process.env.ADMIN_PASSWORD || "Admin@12345",
+          10
+        );
 
-    await User.create({
-      name: process.env.ADMIN_NAME || "Placement Administrator",
-      email,
-      password,
-      role: "admin"
-    });
+        await User.create({
+          name: process.env.ADMIN_NAME || "Placement Administrator",
+          email,
+          password,
+          role: "admin"
+        });
 
-    console.log("Default admin account created");
+        console.log("Default admin account created");
+      }
+    })();
   }
 
-  ready = true;
+  return readyPromise;
 }
 
+// Prepare the database before Express handles a request
+app.use(async (req, res, next) => {
+  try {
+    await prepare();
+    next();
+  } catch (error) {
+    console.error("Database connection failed:", error.message);
+
+    res.status(500).json({
+      message: "Database connection failed",
+      error: error.message
+    });
+  }
+});
+
+// Local development
 if (require.main === module) {
   const port = process.env.PORT || 5000;
 
@@ -49,14 +70,5 @@ if (require.main === module) {
     });
 }
 
-module.exports = async (req, res) => {
-  try {
-    await prepare();
-    return app(req, res);
-  } catch (error) {
-    return res.status(500).json({
-      message: "Database connection failed",
-      error: error.message
-    });
-  }
-};
+// Vercel uses the Express app directly
+module.exports = app;
