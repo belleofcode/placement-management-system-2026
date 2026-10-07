@@ -5,54 +5,31 @@ const connectDB = require("./config/db");
 const bcrypt = require("bcryptjs");
 const User = require("./models/User");
 
-let readyPromise = null;
-
 async function prepare() {
-  if (!readyPromise) {
-    readyPromise = (async () => {
-      await connectDB();
+  await connectDB();
 
-      const email = (
-        process.env.ADMIN_EMAIL || "admin@placementhub.com"
-      ).toLowerCase();
+  const email = (
+    process.env.ADMIN_EMAIL || "admin@placementhub.com"
+  ).toLowerCase();
 
-      const exists = await User.findOne({ email });
+  const exists = await User.findOne({ email });
 
-      if (!exists) {
-        const password = await bcrypt.hash(
-          process.env.ADMIN_PASSWORD || "Admin@12345",
-          10
-        );
+  if (!exists) {
+    const password = await bcrypt.hash(
+      process.env.ADMIN_PASSWORD || "Admin@12345",
+      10
+    );
 
-        await User.create({
-          name: process.env.ADMIN_NAME || "Placement Administrator",
-          email,
-          password,
-          role: "admin"
-        });
-
-        console.log("Default admin account created");
-      }
-    })();
-  }
-
-  return readyPromise;
-}
-
-// Prepare the database before Express handles a request
-app.use(async (req, res, next) => {
-  try {
-    await prepare();
-    next();
-  } catch (error) {
-    console.error("Database connection failed:", error.message);
-
-    res.status(500).json({
-      message: "Database connection failed",
-      error: error.message
+    await User.create({
+      name: process.env.ADMIN_NAME || "Placement Administrator",
+      email,
+      password,
+      role: "admin"
     });
+
+    console.log("Default admin account created");
   }
-});
+}
 
 // Local development
 if (require.main === module) {
@@ -64,11 +41,23 @@ if (require.main === module) {
         console.log(`Server running on http://localhost:${port}`);
       });
     })
-    .catch(error => {
-      console.error("Startup failed:", error.message);
+    .catch((error) => {
+      console.error("Startup failed:", error);
       process.exit(1);
     });
 }
 
-// Vercel uses the Express app directly
-module.exports = app;
+// Vercel serverless function
+module.exports = async (req, res) => {
+  try {
+    await prepare();
+    return app(req, res);
+  } catch (error) {
+    console.error("Database/startup error:", error);
+
+    return res.status(500).json({
+      message: "Database connection failed",
+      error: error.message
+    });
+  }
+};
